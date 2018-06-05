@@ -1,0 +1,374 @@
+---
+title: 'Aprendizaje no supervisado: ejercicios'
+author: "Alicia Aguirre de la Cruz"
+date: '08-04-2018'
+output:
+  html_document: default
+---
+
+```{r}
+library(ggplot2)
+library(cluster)
+library(data.table)
+library(mclust)
+setwd("/home/usuario/Desktop/Aprendizaje no supervisado/alicia_aguirre/")
+```
+
+## Distancias heterogéneas (2 puntos)
+
+Crea una función que calcule la distancia entre dos puntos dados por sus coordenadas (latitud y longitud). 
+Calcula las distancias (en kilómetros) entre: 
+
+* Madrid (40.4000, -3.7167) y Buenos Aires (-34.6033, -58.3817)
+* Sidney (-33.8650, 151.2094) y Bogotá (4.5981, -74.0758)
+
+Las distancias entre estas ciudades están publicados por todas partes. Asegúrate de que tu resultado concuerda con esos valores.
+
+```{r}
+distancia <- function(datos){
+  lat1 <- datos[1,1]
+  lat2 <- datos[2,1]
+  long1 <- datos[1,2]
+  long2 <- datos[2,2]
+  r<-6371
+  c = pi/180
+  #Fórmula de Harvesine
+  d = 2*r*asin(sqrt(sin(c*(lat2-lat1)/2)**2 + cos(c*lat1)*cos(c*lat2)*sin(c*(long2-long1)/2)**2))
+  print(d)
+}
+```
+
+```{r}
+datos_Madrid_BuenosAires <- matrix(c(40.4000,-34.6033,-3.7167,-58.3817), 
+                            nrow = 2, ncol = 2, dimnames = NULL)
+
+datos_Sidney_Bogota <- matrix(c(-33.8650,4.5981,151.2094,-74.0758),
+                            nrow = 2, ncol = 2, dimnames = NULL)
+```
+
+```{r}
+distancia1 <- distancia(datos_Madrid_BuenosAires)
+
+distancia2 <- distancia(datos_Sidney_Bogota)
+```
+
+## Análisis de aceites de oliva (I) (2 puntos)
+
+Analiza el fichero `dat/olive.txt` con dos algoritmos no supervisados. Usa solo las variables numéricas relativas a concentración de sustancias químicas. 
+
+Dependiendo de los algoritmos elegidos:
+
+- determina y razona (si procede) el número adecuado de clústers o la distancia empleada, 
+- determina y razona si ves necesario realizar hacer algún tipo de normalización en los datos y cuál. 
+
+Usa, cuando menos, o k-medias o k-medioides (neceasario para el siguiente ejercicio).
+
+Recuerda proporcionar las debidas explicaciones. 
+
+```{r}
+#Carga del dataset y visualización de variables
+datos_olive1 <- read.delim("dat/olive.txt")
+head(datos_olive1)
+dim(datos_olive1)
+```
+
+```{r}
+#Nos quedamos solo con variables numéricas relativas a la concentración de las sustancias químicas
+datos_olive2 <- datos_olive1[,-c(1:2,11)]
+head(datos_olive2)
+dim(datos_olive2)
+```
+
+```{r}
+#Clustering
+olive_cluster <- kmeans(datos_olive2,3, nstart = 20)
+olive_cluster
+table(olive_cluster$cluster, datos_olive1$Region)
+```
+
+Tras hacer una pequeña exploración de los datos, parece razonable que el algoritmo kmeans pueda separar los aceites en 3 grupos
+correspondientes a cada una de las 3 regiones. Es por ello que ya indiacamos previamente al algoritmo que agrupe en 3 clusters.
+
+Vamos a hacer la comprobación del número de clusters adecuados a partir del gráfico de la suma del error cuadrático (SSE)
+
+```{r}
+mydata <- datos_olive2
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(mydata,centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters", ylab="Within groups sum of squares")
+```
+
+Observando el gráfico obtenido, el número óptimo de clusters está entre 6 y 9. No se aprecia bien dónde está el codo.
+
+```{r}
+olive_cluster_k6 <- kmeans(datos_olive2,6, nstart = 20)
+olive_cluster_k6
+```
+
+```{r}
+olive_cluster_k9 <- kmeans(datos_olive2,9, nstart = 20)
+olive_cluster_k9
+```
+
+En cuanto a probar algún tipo de normalización, veamos si hay algún inconveniente.
+
+```{r}
+datos_olive2_scaled <- scale(datos_olive2)
+head(datos_olive2_scaled)
+```
+
+```{r}
+olive_cluster_scaled <- kmeans(datos_olive2_scaled,3, nstart = 20)
+olive_cluster_scaled
+table(olive_cluster_scaled$cluster, datos_olive1$Region)
+```
+
+No hay mucha distorsión en los resultados al escalar, estos son incluso mejores que los anteriores (para 3 clusters). Pero deberemos tener cuidado, pues este método es sensible a este tipo de intentos de "mejora", ya que trabaja con distancias y estas se ven afectadas al normalizar/escalar.
+
+## Análisis de aceites de oliva (II) (2 puntos)
+
+Analiza los clústers construidos sea con k-medias o con k-medioides (véase el ejercicio anterior):
+
+* ¿Qué variables son las que más distinguen los clústers? ¿Alguna no lo hace? ¿Se te ocurre alguna manera de comprobar si alguna variable es más importante que el resto en la construcción de los clústers obtenidos?
+
+La clasificación dependerá de las variables elegidas e introducir variables irrelevantes aumentará la posibilidad de errores.
+Para seleccinar variables, se tendrán en cuenta aquellas que caracterizan los grupos que se forman y que hacen referencia a los 
+grupos del análisis del clúster que se va a realizar. Si el número de variables es muy grande, se hace previeamente un análisis de
+componentes principales (PCA), se resume el conjunto y posteriormente nos quedamos con las que impactan significativamente en el clustering.
+
+* ¿Puedes hacer un pequeño estudio de la calidad del clúster (gráficos de bandera o similar)?
+
+```{r}
+tmp <- datos_olive2
+
+mi_cluster <- pam(tmp, k=3)
+plot(silhouette(mi_cluster),col=1:3)
+```
+
+Indicando 3 clusters podemos ver claramente como se diferecian perfectamente en el gráfico.
+
+```{r}
+mi_cluster <- pam(tmp, k=6)
+plot(silhouette(mi_cluster), col=1:6)
+```
+
+Con 6 clusters también puede apreciarse casi a la perfección. 
+
+```{r}
+mi_cluster <- pam(tmp, k=9)
+plot(silhouette(mi_cluster), col=1:9)
+```
+
+* Estudia uno de los clústers y muestra la distribución de las variables en él. Compáralas con la distribución de la muestra entera.
+```{r}
+#En primer lugar relacionamos en un mismo data frame las variables iniciales y el cluster al que pertenecen, añadiendo la columna No.cluster:
+datos_estudio <- datos_olive2
+No.cluster <- c(olive_cluster_k9$cluster)
+datos_estudio <- data.frame(datos_estudio,No.cluster)
+head(datos_estudio)
+```
+
+```{r}
+#Nos quedamos con uno de los clusters, el cluster 1:
+cluster_1 <- datos_estudio[No.cluster==1, ]
+cluster_1
+```
+
+```{r}
+#Variable palmitic
+par(mfrow = c(1, 2))
+hist(datos_estudio$palmitic, col = "light blue", freq = FALSE, xlab = "Palmitic Muestra Completa")
+hist(cluster_1$palmitic, col = "light blue", freq = FALSE, xlab = "Palmitic Cluster 1")
+```
+
+```{r}
+#Variable palmitoleic
+par(mfrow = c(1, 2))
+hist(datos_estudio$palmitoleic, col = "light blue", freq = FALSE, xlab = "Palmitoleic Muestra Completa")
+hist(cluster_1$palmitoleic, col = "light blue", freq = FALSE, xlab = "Palmitoleic Cluster 1")
+```
+
+```{r}
+#Variable stearic
+par(mfrow = c(1, 2))
+hist(datos_estudio$stearic, col = "light blue", freq = FALSE, xlab = "Stearic Muestra Completa")
+hist(cluster_1$stearic, col = "light blue", freq = FALSE, xlab = "Stearic Cluster 1")
+```
+
+```{r}
+#Variable oleic
+par(mfrow = c(1, 2))
+hist(datos_estudio$oleic, col = "light blue", freq = FALSE, xlab = "Oleic Muestra Completa")
+hist(cluster_1$oleic, col = "light blue", freq = FALSE, xlab = "Oleic Cluster 1")
+```
+
+```{r}
+#Variable linoleic
+par(mfrow = c(1, 2))
+hist(datos_estudio$linoleic, col = "light blue", freq = FALSE, xlab = "Linoleic Muestra Completa")
+hist(cluster_1$linoleic, col = "light blue", freq = FALSE, xlab = "Linoleic Cluster 1")
+```
+
+```{r}
+#Variable linolenic
+par(mfrow = c(1, 2))
+hist(datos_estudio$linolenic, col = "light blue", freq = FALSE, xlab = "Linolenic Muestra Completa")
+hist(cluster_1$linolenic, col = "light blue", freq = FALSE, xlab = "Linolenic Cluster 1")
+```
+
+```{r}
+#Variable arachidic
+par(mfrow = c(1, 2))
+hist(datos_estudio$arachidic, col = "light blue", freq = FALSE, xlab = "Arachidic Muestra Completa")
+hist(cluster_1$arachidic, col = "light blue", freq = FALSE, xlab = "Arachidic Cluster 1")
+```
+
+```{r}
+#Variable eicosenoic
+par(mfrow = c(1, 2))
+hist(datos_estudio$eicosenoic, col = "light blue", freq = FALSE, xlab = "Eicosenoic Muestra Completa")
+hist(cluster_1$eicosenoic, col = "light blue", freq = FALSE, xlab = "Eicosenoic Cluster 1")
+```
+
+* ¿Se correlacionan estos clústers con las variables geográficas (que no has empleado, recuerda, en el análisis)? Puedes analizarlo construyendo una tabla que cuente el número de observaciones en cada región / provincia (filas) con los clústers (columnas).
+
+```{r}
+table(olive_cluster_scaled$cluster, datos_olive1$Region)
+table(olive_cluster_k6$cluster, datos_olive1$Area)
+table(olive_cluster_k9$cluster, datos_olive1$Area)
+
+```
+
+El de 3 clusters se ajusta bastante a la region, mientras el de 9 se ajusta casi perfectamente al area.
+Dependiendiendo de la información que estemos buscando, nos interesará mostrar uno u otro. 
+Se explican mejor los datos aun así con el de 9 clusters.
+
+
+## Análisis de aceites de oliva (III) (2 puntos)
+
+Repite el análisis sobre los mismos datos pero transformados mediante PCA, es decir, 
+
+1. reduce la dimensión del conjunto de datos usando PCA (¿con cuántas componentes te quedas?) y
+2. crea clústers usando k-medias o k-medioides.
+
+Analiza brevemente (no con el detalle de antes) los resultados obtenidos. ¿Se parecen?
+
+Nota: puedes emplear una tabla para comprobar si las asignaciones a clústers construidos con algoritmos distintos son o no coincidentes. Existen además pruebas estadísticas e índices de varios tipos que indican en qué medida hay o no coincidencia, pero no merece la pena que pierdas tiempo con ello.
+
+```{r}
+d <- datos_olive2
+#Hacemos PCA sin escalar las varianzas
+pr.out <- prcomp(d)   #pr.out escala la media por defecto
+biplot(pr.out,scale=0)
+```
+
+```{r}
+#Hacemos PCA escalando medias y varianzas
+pr.out <- prcomp(d,scale=TRUE)   
+biplot(pr.out,scale=0)
+names(pr.out)
+```
+
+```{r}
+#Ahora calculamos la Proporción de Variabilidad Explicada (PVE) para cada una de las componentes. 
+#Calculamos primero las desviaciones típicas y luego la varianza = (sdev)^2
+pr.out$sdev
+pr.var <- pr.out$sdev^2
+
+#Calculamos la proporciónn PVE 
+pve = pr.var/sum(pr.var)
+pve
+```
+
+Con PCA1 explicaríamos el 46.51% de la variacióń, mientras que con PCA2 un 22.07%, y así iría decreciendo sucesivamente lo que explica cada una de las componentes principales.
+Por tanto, quedándonos con las primeras componentes, estaríamos contemplando prácticamente toda la variabilidad de los datos.
+Vamos a ver con la representación de los pve con cuántas variables deberíamos quedarnos.
+
+```{r}
+par(mfrow = c(1, 2))
+plot(pve, xlab="Componente Principal", ylab="Proporción de Varianzas Explicadas", ylim=c(0,1),type='b')
+plot(cumsum(pve), xlab="Componente Principal", ylab="Proporción Acumulatica de Varianzas Explicadas",ylim=c(0,1),type='b')
+```
+
+Observándo estos gráficos, quedandonos con 5 componentes principales, estaríamos describiendo casi un 95% de la varianza de los datos.
+
+```{r}
+#Eliminamos el resto de variables
+d_new <- pr.out$x [,1:5]
+head(d_new)
+```
+
+```{r}
+#Aplicamos k-means
+cluster_d <- kmeans(d_new,9, nstart = 20)
+cluster_d
+```
+
+```{r}
+table(cluster_d$cluster, datos_olive1$Area)
+```
+
+Utilizando PCA obtenemos una solución parecida y puede apreciarse una mejora en la clasificación posterior.
+PCA sirve para reducir el ruido. Elimina las dimensiones de menor varianza (ruido), lo que añade valor a las dimensiones principales y mejora la implementación de k-means.
+
+
+## Mezclas de distribuciones (3 puntos)
+
+El siguiente código crea un conjunto de datos bidimensional:
+
+```{r, eval = FALSE}
+set.seed(123)
+
+n <- 200
+radio <- rnorm(n, 2, 0.5)
+angulo <- rnorm(n, 0, 2*pi)
+
+datos <- data.frame(
+  x = radio * cos(angulo),
+  y = radio * sin(angulo)
+)
+```
+
+- Represéntalo usando densidades (0.5 puntos)
+- Usa el paquete `mclust` para encontrar una mezcla de normales que aproxime su densidad; fija explícitamente el número de componentes (no uses el valor por defecto) (1 punto)
+- Representa gráficamente la distribución encontrada (0.5 puntos)
+- Crea una tabla con los centros de las normales (1 punto)
+
+```{r}
+clPairs(datos)
+```
+
+```{r}
+BIC <- mclustBIC(datos)
+plot(BIC)
+summary(BIC)
+```
+
+```{r}
+mod1 <- Mclust(datos, x = BIC)
+summary(mod1, parameters = TRUE)
+```
+
+```{r}
+plot(mod1, what = "classification")
+table(mod1$classification)
+```
+
+```{r}
+ICL = mclustICL(datos)
+summary(ICL)
+plot(ICL)
+```
+
+```{r}
+LRT = mclustBootstrapLRT(datos, modelName = "VVV")
+LRT
+```
+
+
+## Artículo científico o técnico (2 puntos)
+
+Busca algún artículo científico o técnico en el que se use el clústering para algo. Haz un breve resumen: área del artículo, datos utilizados, resultados, qué te resulta interesante. Que no ocupe más de tres o cuatro párrafos (o de medio a un folio, o 150-250 palabras).
+
+Artículo y resumen adjunto en la carpeta res.
+

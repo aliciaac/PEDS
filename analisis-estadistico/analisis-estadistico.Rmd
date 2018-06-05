@@ -1,0 +1,288 @@
+---
+title: "Práctica Análisis Estadístico"
+author: "Alicia Aguirre"
+output: html_document
+---
+
+##Ejercicio 1.1
+
+```{r}
+list.of.packages <- c("ggplot2", "dplyr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if (length(new.packages)) install.packages(new.packages)
+require(ggplot2)
+require(dplyr)
+```
+
+```{r}
+#Cagramos los datos
+load("/home/usuario/Desktop/Analisis estadistico/Practica/trasplantes.rda")
+trasplantes
+```
+
+```{r}
+prior <- trasplantes$prior
+levels(prior)
+levels(prior)[1] <- "0"
+levels(prior)[2] <- "1"
+prior <- as.numeric(prior)-1
+prior
+```
+
+```{r}
+rep_sample_n <- function(tbl, size, replace = FALSE, reps=1)
+{
+    n <- nrow(tbl)
+    i <- unlist(replicate(reps, sample.int(n, size, replace = replace), simplify = FALSE))
+
+    rep_tbl <- cbind(replicate = rep(1:reps,rep(size,reps)), tbl[i, , drop = FALSE])
+
+    dplyr::group_by(rep_tbl, replicate)
+}
+```
+
+```{r}
+# Generamos una muestra a partir de la población
+set.seed(12345)
+muestra <- sample(prior, replace = TRUE, size = 10)
+
+muestra1<- tibble(muestra)
+muestra1
+
+```
+
+```{r}
+# Generamos 1000 remuestreos de la muestra con n=10
+muestra_10 <- muestra1 %>%
+  rep_sample_n(size = 10, replace = TRUE, reps = 1000)
+
+# Generamos 1000 remuestreos de la muestra con n=3
+muestra_3 <- muestra1 %>%
+  rep_sample_n(size = 3, replace = TRUE, reps = 1000)
+
+# Generamos 1000 remuestreos de la muestra con n=150
+muestra_150 <- muestra1 %>%
+  rep_sample_n(size = 150, replace = TRUE, reps = 1000)
+
+# Calculamos p para cada encuesta
+props_10 <- muestra_10 %>%
+  summarize(prop_yes = mean(muestra))
+
+props_3 <- muestra_3 %>%
+  summarize(prop_yes = mean(muestra))
+
+props_150 <- muestra_150 %>%
+  summarize(prop_yes = mean(muestra))
+
+# Vemos variabilidad de p
+props_10 %>% summarize(sd(prop_yes))
+
+props_3 %>% summarize(sd(prop_yes))
+
+props_150 %>% summarize(sd(prop_yes))
+```
+
+
+```{r}
+# Calculamos la propocion de haber sido sometido a cirugía con aterioridad
+props_10 <- muestra_10 %>%
+  summarize(prop_yes = mean(muestra))
+props_10
+
+# Proporción de pacientes en 2 desviaciones típicas
+props_10 %>%
+  mutate(lower = 0.1165 - 2 * sd(prop_yes),
+         upper = 0.1165 + 2 * sd(prop_yes),
+         in_CI = prop_yes > lower & prop_yes < upper) %>%
+  summarize(mean(in_CI))
+```
+
+```{r}
+# Calculamos p
+p <- mean(muestra)
+
+# Realizamos Bootstrap para encontrar las desviación típica de p
+muestra_10 <- muestra1 %>%
+  rep_sample_n(10, replace = TRUE, reps = 1000) %>%
+  summarize(prop_yes = mean(muestra))
+
+# Creamos un intervalo de valores posibles
+muestra_10 %>%
+  summarize(lower = p - 2 * sd(prop_yes),
+            upper = p + 2 * sd(prop_yes))
+```
+
+```{r}
+# Encontrar los cuantiles 0.025 y 0.975
+muestra_10 %>% 
+  summarize(q025_prop = quantile(prop_yes, p = .025),
+            q975_prop = quantile(prop_yes, p = .975))
+```
+
+Conclusión: Podemos decir que la proporción de candidatos a trasplante de corazón que han sido sometidos a cirugía anteriormente está entre 0 y 0.50 con un nivel de confianza del 95%.
+
+
+##Ejercicio 1.2
+
+En primer lugar definimos las hipótesis que van a ser consideradas en el experimento:
+
+Ho: treatment y survived son independientes
+
+Ha: treatment y suvived no son independientes
+
+```{r}
+set.seed(1234)
+##1.1
+# Crear una tabla que resuma los datos
+
+test <- trasplantes %>%
+  select(survived, transplant)
+
+muestra_test <- test[sample(nrow(test), 30),]
+
+muestra_test
+
+```
+
+```{r}
+# Encontrar la proporción de vivos para trasplante o control 
+muestra_test %>%
+  group_by(transplant) %>%
+  summarize(survived_prop  = mean(survived == "alive"))
+```
+
+```{r}
+# Muestreamos el data frame completo 5 veces
+muestra_test %>%
+  rep_sample_n(size = nrow(muestra_test), reps = 1000) 
+```
+
+```{r}
+# Mezclamos la variable survived dentro de cada replica
+muestra_test %>%
+  rep_sample_n(size = nrow(muestra_test), reps = 1000)  %>%
+  mutate(surv_perm = sample(survived)) 
+```
+
+```{r}
+# Encontramos la proporcón de supervivienes por cada replica y tratamiento
+muestra_test %>%
+  rep_sample_n(size = nrow(muestra_test), reps = 1000)  %>%
+  mutate(surv_perm = sample(survived)) %>%
+  group_by(replicate, transplant) %>%
+  summarize(prop_surv_perm = mean(surv_perm == "alive"),
+            prop_surv = mean(survived== "alive")) 
+```
+
+```{r}
+# Diferencias de proporciones de vivos
+diferencias <- muestra_test %>%
+  rep_sample_n(size = nrow(muestra_test), reps = 1000)  %>%
+  mutate(surv_perm = sample(survived)) %>%
+  group_by(replicate, transplant) %>%
+  summarize(prop_surv_perm = mean(surv_perm == "alive"),
+            prop_surv = mean(survived== "alive"))  %>%
+  summarize(diff_perm = diff(prop_surv_perm),
+            diff_orig = diff(prop_surv))
+diferencias
+```
+
+```{r}
+# Histograma de las diferencias permutadas
+ggplot(diferencias, aes(x = diff_perm)) + 
+  geom_histogram(binwidth = 0.01) +
+  geom_vline(aes(xintercept = diff_orig), col = "red")
+```
+
+```{r}
+# Encontrar los cuantiles 0.90, 0.95 y 0.99 de las diferencias permutadas
+diferencias %>% 
+  summarize(q.90 = quantile(diff_perm, p = 0.90),
+            q.95 = quantile(diff_perm, p = 0.95),
+            q.99 = quantile(diff_perm, p = 0.99))
+
+# Encontrar los cuantiles 0.10, 0.05 y 0.01 de las diferencias permutadas
+diferencias %>% 
+  summarize(q.01 = quantile(diff_perm, p = 0.01),
+            q.05 = quantile(diff_perm, p = 0.05),
+            q.10 = quantile(diff_perm, p = 0.10))
+```
+
+Se puede concluir por tanto, que para un nivel de significancia de 0.05 (intervalo de confianza de 95%) se rechaza la hipótesis nula.
+Y en cuanto a estos resultados, no sería acertado hacer afirmaciones extremas sobre el rechazo de la hipótesis nula, puesto que justo el límite para q.95 coincide con 0.317. En este caso, sería mejor hacer un segundo estudio tomando más datos de la población para poder definitivamente rechazar la hipótesis nula.
+
+##Ejercicio 2.1
+
+Resumen de los datos:
+
+```{r}
+Tratamiento <- c("Pioglitazone", "Rosiglitazone", "Total")
+Problemas_SI <- c(5386, 2593, 7979)
+Problemas_NO <- c(154592, 65000, 219592)
+Total <- c(159978, 67593, 227571)
+datos <- data.frame(Tratamiento, Problemas_SI, Problemas_NO, Total)
+datos
+```
+
+
+1.Como hay más pacientes con pioglitazone que tienen problemas cardiovasculares (5,386 frente a 2,593), podemos concluir que el ratio de problemas cardiovasculares de aquellos pacientes tratados con pioglitazone es mayor.
+
+```{r}
+datos %>%
+  group_by(Tratamiento) %>% 
+  summarize(Ratio =(Problemas_SI/Total)*100) %>% 
+  ggplot(aes(Tratamiento,Ratio,fill = Tratamiento)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  guides(fill = "none") +
+  theme_bw()
+```
+
+FALSO. Podemos concluir que a pesar de que hay más pacientes con pioglitazone que tienen problemas cardiovasculares, el ratio de problemas cardiovasculares con Rosiglitazone es mayor.
+
+
+2.Los datos sugieren que los pacientes diabéticos que están tomando rosiglitazone son más propensos a sufrir problemas cardiovasculares ya que el ratio de incidencia es de 3.8 % (2; 593/67; 593 = 0.038) en pacientes con este tratamiento, mientras que es de 3.4 % (5; 386/159; 978 = 0.034) para pacientes con tratamiento de pioglitazone.
+
+```{r}
+datos %>%
+  group_by(Tratamiento) %>% 
+  summarize(Ratio =(Problemas_SI/Total)*100)
+```
+
+VERDADERO.
+
+
+3.Que el ratio de incidencia para el grupo con tratamiento rosiglitazone sea mayor demuestra que el rosiglitazone causa serios problemas cardiovasculares.
+
+```{r}
+Tot <- datos[2,4]
+
+datos %>%
+  select(Tratamiento, Problemas_SI, Problemas_NO) %>% 
+  filter(Tratamiento=="Rosiglitazone") %>% 
+  summarize(Ratio1 =(Problemas_SI/Tot)*100,
+            Ratio2 =(Problemas_NO/Tot)*100)
+```
+
+FALSO. Que el ratio de incidencia para el grupo con tratamiento rosiglitazone sea mayor demuestra que es mayor el riesgo de sufrir problemas cardiovasculares graves con respecto al tratamiento pioglitazone, a simple vista (tendremos que analizar si existe diferencia significativa entre ambos ratios).
+Por otro lado, lo único que puede decirse con respecto a los ratios es que ambos tratamientos causan problemas cardiovasculares, pero a una pequeña parte de los pacientes como puede verse en la comparación de Ratio1 y Ratio2 para el caso de rosiglitazone.
+
+
+4.Basándonos en la información dada hasta aquí, no podemos afirmar si la diferencia entre los ratios de incidencia se debe a la relación entre ambas variables o al azar.
+
+VERDADERO. Sería necesario realizar un test de hipóteis.
+
+
+##Ejercicio 2.2
+
+Planteamiento de la hipótesis nula y alternativa:
+
+hnula: Tratamiento y Problemas Cardiovasculares son independientes
+
+halternativa: Tratamiento y Problemas Cardiovasculares no son independientes
+
+
+
+
+
+
+

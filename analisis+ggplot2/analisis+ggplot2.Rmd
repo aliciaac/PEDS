@@ -1,0 +1,130 @@
+---
+title: "Práctica de ggplot2"
+author: "Alicia Aguirre"
+output: html_document
+---
+
+```{r}
+library ('ggplot2')
+library('data.table')
+library('reshape2')
+```
+
+#Dataset
+El conjunto de datos sobre que el que se va a trabajar contiene información extraída de una aplicación de alquiler de bicicletas en Chicago. A continuación se describen las variables:
+
+**trip_id**: Número identificador del viaje
+**year**: Año 2014
+**month**: Mes de enero
+**week**: Semanas del mes de enero (1-4)
+**day**: Días del mes de enero
+**hour**: Horas
+**usertype**: Subscriber
+**gender**: Masculino o femenino
+**starttime**: Hora de comienzo
+**stoptime**: Hora de paro
+**tripduration**: Duración del viaje
+**temperature**: Temperatura
+**events**: cloudy, rain or snow, clear, not clear
+
+Fuente: https://www.kaggle.com/samratp/bike-share-analysis/data
+
+```{r}
+dt.table1 <- fread('/home/usuario/Desktop/Visualizacion/Archivos practica/Datos_Enero2014.csv',sep = ";")
+dt.table1[,tripduration:=gsub("\\..*","",tripduration)]
+dt.table1[,tripduration:=as.numeric(tripduration)]
+dt.table1[,week2:=as.factor(week)]
+```
+
+###Duración viajes
+```{r}
+dt.table1[,mean(tripduration)]
+ggplot(dt.table1, aes(x=tripduration)) + geom_histogram(binwidth=0.5)
+```
+
+Mientras que la media de duración de los viajes es 10.53 minutos, el valor más repetido esta en torno a 5-6 min, por lo que predominan los trayectos cortos en este tipo de servicio.
+
+###Agentes meteorológicos predominantes
+```{r}
+ggplot(dt.table1, aes(week, colour=events)) + geom_freqpoly(aes(group = events), stat="count", show.legend=F) + facet_wrap(~events)
+```
+
+```{r}
+ggplot(dt.table1, aes(week, fill=events)) + geom_bar(show.legend=F) + facet_wrap(~events)
+```
+
+```{r}
+ggplot(dt.table1, aes(x=week, fill=events)) + geom_histogram(binwidth=0.5)
+```
+
+Podemos ver que durante el mes de enero de 2014 predomina el tiempo nublado, seguido de lluvia en segunda instancia.
+
+Sobre todo fijándonos en la útlima gráfica de las 3 anteriores, se aprecia cómo en las 2 primeras semanas y en la úlima la utilización de la apliación es menor. Esto se explica en parte por la falta de datos de algunos días en las semanas 1 y 2, y además debido al frío ártico que rompió con las temperaturas estándar de enero entre los días 5-7 y 27-28, lo que probocó que menos gente hiciera uso del servicio de bicicletas en Chicago.
+
+National Weather Service:
+
+https://www.weather.gov/lot/2014Jan5-7_cold
+
+https://www.weather.gov/lot/2014jan28
+
+###Demanda por horas
+```{r}
+ggplot(dt.table1,aes(hour))+geom_density()
+```
+
+Claramente diferenciables en este gráfico las horas puntas de entrada y salida del trabajo, en torno a las 7:30-8:00 y las 17:00.
+
+###Demanda por día
+```{r}
+ggplot(dt.table1, aes(x=day, fill=gender)) + geom_histogram(binwidth=0.5) +coord_flip()
+```
+
+Se aprecia como es sobre todo para un uso en días laborables, los fines de semana decrece la demanda.
+
+###Demanda frente a temperatura
+```{r}
+dt.table2 <- dt.table1[,.(sum.tripd=sum(tripduration)), by=temperature]
+ggplot(dt.table2,aes(temperature, sum.tripd, color='red')) + geom_point() +stat_smooth()
+```
+
+Puede observarse como la temperatura es faborable para el uso del servicio. La temperatura óptima está entre 20 y 30.
+
+###Variación temperatura
+```{r}
+ggplot(dt.table1, aes(week2, temperature, fill = week2)) + geom_boxplot()
+```
+
+Como comentaba antes, justo en las semanas 1, 2 y 5 hubo una bajada de temperaturas considerable, lo que explica los outliers presentes en el gráfico anterior.
+
+###Temperatura frente a demanda
+```{r}
+#Hayar la temperatura media y número de viajes por día
+dt.table3 <- dt.table1[ ,Average_Temp:= mean(temperature), by=.(week,day)]
+dt.table3 <- dt.table1[ ,N_Trips:= .N, by=.(week,day)]
+#Normalizar temperatura y número de viajes
+dt.table3 [, min_AvTemp:= min(Average_Temp)]
+dt.table3 [, max_AvTemp:= max(Average_Temp)]
+dt.table3 [, norm_Average_Temp:= (Average_Temp - min_AvTemp)/(max_AvTemp-min_AvTemp)]
+dt.table3 [, min_NT:= min(N_Trips)]
+dt.table3 [, max_NT:= max(N_Trips)]
+dt.table3 [, norm_N_Trips:= (N_Trips - min_NT)/(max_NT-min_NT)]
+dt.table3 [, date:= paste(dt.table3$week, dt.table3$day, sep="/")]
+#Eliminar valores repetidos
+dt.table3 <- unique(dt.table3, by='date')
+#Melt y ordenar según la fecha
+dt.melt1 <- melt(dt.table3, id.vars = "date", measure.vars = c("norm_Average_Temp", "norm_N_Trips"))
+setorder(dt.melt1, date)
+#ids de referencia para representar
+dt.melt1[,variable:=as.character(variable)]
+dt.melt1[,id:= 1:.N]
+dt.melt1[,id:=as.numeric(id)]
+#Plot
+ggplot(dt.melt1, aes(id, value, color=variable)) + geom_line() + facet_grid(variable~.)
+```
+
+Según puede verse, realmente el uso de las bicicletas está bastante relacionado con la temperatura.
+
+
+
+
+

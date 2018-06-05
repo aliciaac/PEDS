@@ -1,0 +1,337 @@
+---
+title: 'Práctica de Aprendizaje Supervisado'
+author: "Alicia Aguirre"
+date: '2018-04-08'
+output:
+  html_document: default
+---
+
+####Opción 1: Bank Marketing####
+
+```{r}
+library(caret)
+library(data.table)
+library(e1071)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(h2o)
+```
+
+Carga del dataset, limpieza y separación de conjunto de train y test, así como visualización de la distribución de las variables.
+
+```{r}
+data <- read.csv("/home/usuario/Desktop/Aprendizaje supervisado/Practica/bank-additional.csv", sep = ";", stringsAsFactors = FALSE)
+head(data)
+```
+
+```{r}
+table(data$y)
+```
+
+```{r}
+data$age <- as.numeric(data$age)
+data$duration <- as.numeric(data$duration)
+data$campaign <- as.numeric(data$campaign)
+data$pdays <- as.numeric(data$pdays)
+data$previous <- as.numeric(data$previous)
+data$emp.var.rate <- as.numeric(data$emp.var.rate)
+data$cons.price.idx <- as.numeric(data$cons.price.idx)
+data$cons.conf.idx <- as.numeric(data$cons.conf.idx)
+data$euribor3m <- as.numeric(data$euribor3m)
+data$nr.employed <- as.numeric(data$nr.employed)
+```
+
+```{r}
+data$job <- as.factor(data$job)
+data$marital <- as.factor(data$marital)
+data$education <- as.factor(data$education)
+data$default <- as.factor(data$default)
+data$housing <- as.factor(data$housing)
+data$loan <- as.factor(data$loan)
+data$contact <- as.factor(data$contact)
+data$month <- as.factor(data$month)
+data$day_of_week <- as.factor(data$day_of_week)
+data$poutcome <- as.factor(data$poutcome)
+data$y <- as.factor(data$y)
+```
+
+Para la mejora predictiva eliminamos la variable duration puesto que esta altamente correlada con la variable a predecir.
+
+```{r}
+data <- subset(data, select = -c(duration))
+```
+
+```{r}
+barplot(table(data$job),col="light blue",ylab="Número Clientes",las=2,main="Job",cex.names = 0.8,cex.axis = 0.8)
+```
+
+```{r}
+hist(data$age, col = "light blue", freq = FALSE)
+```
+
+```{r}
+set.seed(123456)
+TrainingData <- createDataPartition(data$y, p=0.75, list = FALSE)
+train <- data[TrainingData,]
+test <-data[-TrainingData,]
+```
+
+```{r}
+prop.table(table(train$y))
+nrow(train)
+```
+
+```{r}
+prop.table(table(test$y))
+nrow(test)
+```
+
+Vemos que se mantiene la distribución de yes y no en ambos subconjuntos de datos.
+
+
+#### SVM: Predecir si el cliente va a contratar el depósito.
+
+Train
+
+```{r}
+train.SVM <- subset(train, select = -c(y))
+train.SVM <- data.frame(x = train.SVM, y = as.factor(train$y))
+```
+
+```{r}
+out.svm <- svm(y ~ ., data = train.SVM, kernel = "linear", cost = 1)
+summary(out.svm)
+```
+
+```{r}
+table(out.svm$fitted, train$y)
+```
+
+Test 
+
+```{r}
+test.SVM <- subset(test, select = -c(y))
+test.SVM <- data.frame(x = test.SVM, y= as.factor(test$y))
+pred.test.SVM <- predict(out.svm, newdata = test.SVM)
+```
+
+Validation
+
+```{r}
+table(pred.test.SVM, test.SVM$y)
+```
+
+La predicción de 'no' es bastante buena, pero la de 'si' no llega a ser tan buena. Vamos a intentar mejorarlo
+
+```{r}
+prop.table(table(pred.test.SVM, test.SVM$y))
+```
+
+Optimización y mejora predictiva:
+
+```{r}
+#En primer lugar normalizamos las varibles para que converja mas facilmente el algoritmo.
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))  
+}
+```
+
+```{r}
+data$age <- normalize(data$age)
+data$campaign <- normalize(data$campaign)
+data$pdays <- normalize(data$pdays)
+data$previous <- normalize(data$previous)
+data$emp.var.rate <- normalize(data$emp.var.rate)
+data$cons.price.idx <- normalize(data$cons.price.idx)
+data$cons.conf.idx <- normalize(data$cons.conf.idx)
+data$euribor3m <- normalize(data$euribor3m)
+data$nr.employed <- normalize(data$nr.employed)
+```
+
+```{r}
+set.seed(123456)
+TrainingData <- createDataPartition(data$y, p=0.75, list = FALSE)
+train <- data[TrainingData,]
+test <-data[-TrainingData,]
+```
+
+```{r}
+#Utilizamos TUNE para realizar cross-validation y saber el valor de coste optimo para SVM.
+
+tune.out <- tune(svm, y ~ ., data = train, kernel = "linear",
+                 ranges = list(cost = c(seq(0.01, 0.2, by = 0.01))),
+                 tunecontrol = tune.control(sampling = "cross", cross = 10))
+
+summary(tune.out)
+```
+
+```{r}
+bestmodal.tune<-tune.out$best.model
+summary(bestmodal.tune)
+```
+
+No obtenemos diferencias para el valor de coste, aun así el mejor es el más pequeño: cost=0.01
+
+```{r}
+#Probaremos ahora con kernel = polynomial y cost=0.01
+train.svm<-svm(y~.,train,kernel="polynomial",cost=0.01,scale=TRUE,degree=3,gamma=0.1)
+summary(train.svm)
+```
+
+```{r}
+#Testing 
+test.svm<-predict(train.svm,test)
+```
+
+```{r}
+#Misclassification Table
+table(predict=test.svm,truth=test$y)
+```
+
+
+#### Decision Trees: Predecir si el cliente va a contratar el depósito.
+
+```{r}
+#Inicializamos de nuevo la varible data para que no influyan los cambios hechos posteriormente en el caso anterior.
+
+data <- read.csv("/home/usuario/Desktop/Aprendizaje supervisado/Practica/bank-additional.csv", sep = ";", stringsAsFactors = FALSE)
+
+data$age <- as.numeric(data$age)
+data$duration <- as.numeric(data$duration)
+data$campaign <- as.numeric(data$campaign)
+data$pdays <- as.numeric(data$pdays)
+data$previous <- as.numeric(data$previous)
+data$emp.var.rate <- as.numeric(data$emp.var.rate)
+data$cons.price.idx <- as.numeric(data$cons.price.idx)
+data$cons.conf.idx <- as.numeric(data$cons.conf.idx)
+data$euribor3m <- as.numeric(data$euribor3m)
+data$nr.employed <- as.numeric(data$nr.employed)
+
+data$job <- as.factor(data$job)
+data$marital <- as.factor(data$marital)
+data$education <- as.factor(data$education)
+data$default <- as.factor(data$default)
+data$housing <- as.factor(data$housing)
+data$loan <- as.factor(data$loan)
+data$contact <- as.factor(data$contact)
+data$month <- as.factor(data$month)
+data$day_of_week <- as.factor(data$day_of_week)
+data$poutcome <- as.factor(data$poutcome)
+data$y <- as.factor(data$y)
+
+set.seed(123456)
+TrainingData <- createDataPartition(data$y, p=0.75, list = FALSE)
+train <- data[TrainingData,]
+test <-data[-TrainingData,]
+```
+
+Train
+
+```{r}
+data.rpart <- rpart(y ~ ., data = train, cp = 10^(-2))
+rpart.plot(data.rpart)
+```
+
+Test
+
+```{r}
+predictions <- predict(data.rpart, test, type = "class")
+```
+
+Validation
+
+```{r}
+confusion.matrix <- table(predictions, test$y)
+confusion.matrix
+```
+
+Las predicciones son bastante aceptables. Veamos la precisión.
+
+```{r}
+confusion.matrix <- prop.table(table(predictions, test$y))
+accuracy <- confusion.matrix[1,1] + confusion.matrix[2,2]
+accuracy
+```
+
+Optimización y mejora predictiva
+
+```{r}
+#Veamos los nombres de la variable retornada
+names(data.rpart)
+```
+
+```{r}
+#El atributo cptable nos aporta informacion del tamaño del arbol y el error
+data.rpart$cptable[,]
+```
+
+Variando el parámetro cp podemos cambiar la profundidad del arbol y ver como afecta dicha profundidad en el error de los útlimos árboles.
+
+- 1º-> cp = 10^(-6): Accuracy 0.9173955
+- 2º-> cp = 10^(-2): Accuracy 0.9144801
+
+Tenemos un accuracy más bajo para cp 10-2 pero con menos spits podemos explicar el resultado casi con la misma precisión.
+
+```{r}
+# Interpetación de resultados
+data.rpart$frame[,]
+data.rpart$splits[,]
+data.rpart$csplit[,]
+```
+
+
+#### Neural Networks: Modelo de regresión para predecir la edad
+
+Train
+
+```{r}
+data$age <- normalize(data$age)
+data$campaign <- normalize(data$campaign)
+data$pdays <- normalize(data$pdays)
+data$previous <- normalize(data$previous)
+data$emp.var.rate <- normalize(data$emp.var.rate)
+data$cons.price.idx <- normalize(data$cons.price.idx)
+data$cons.conf.idx <- normalize(data$cons.conf.idx)
+data$euribor3m <- normalize(data$euribor3m)
+data$nr.employed <- normalize(data$nr.employed)
+```
+
+```{r}
+TrainingData <- createDataPartition(data$y, p=0.75, list = FALSE)
+train <- data[TrainingData,]
+test <-data[-TrainingData,]
+```
+
+```{r}
+localH2O = h2o.init(nthreads=-1)
+train.hex <- as.h2o(train)
+test.hex <- as.h2o(test)
+```
+
+```{r}
+h2o.model <- h2o.deeplearning(x = 2:20, y = 1, training_frame = train.hex,
+                              hidden = c(3, 2, 3, 3), seed = 1234, 
+                              activation = "Tanh",
+                              stopping_rounds = 20,
+                              validation_frame = test.hex,
+                              standardize = T, epochs = 10000,
+                              train_samples_per_iteration = 0)
+```
+
+Test
+
+```{r}
+predictions <- as.vector(h2o.predict(h2o.model, test.hex))
+```
+
+Validation
+
+```{r}
+cor(predictions, test$age)
+```
+
+```{r}
+RMSE <- sqrt(mean((test$age - predictions)^2))
+RMSE
+```
